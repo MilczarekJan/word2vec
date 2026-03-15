@@ -1,1 +1,1 @@
-This is a pri=oject for JetBrains recruitation
+This is a project for JetBrains recruitation

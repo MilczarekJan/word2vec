@@ -1,1 +1,3 @@
-This is a project for JetBrains recruitation
+#USAGE
+
+python main.py

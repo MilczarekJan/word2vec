@@ -1,72 +1,74 @@
 import numpy as np
 
 
-def softmax(x):
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -10, 10)))
 
 
 class Word2Vec:
-    def __init__(self, embedding_dim=50, window_size=2, learning_rate=0.01):
+    def __init__(self, vocab_size, embedding_dim, learning_rate, neg_samples, noise_dist):
+        self.V = vocab_size
         self.N = embedding_dim
-        self.window_size = window_size
         self.alpha = learning_rate
-        self.X_train = []
-        self.y_train = []
-        self.words = []
-        self.word_index = {}
+        self.K = neg_samples
+        self.noise_dist = noise_dist
 
-    def initialize(self, V, data):
-        self.V = V
-        self.W  = np.random.uniform(-0.8, 0.8, (self.V, self.N))
-        self.W1 = np.random.uniform(-0.8, 0.8, (self.N, self.V))
-        self.words = data
-        for i, word in enumerate(data):
-            self.word_index[word] = i
+        self.W_in  = np.random.uniform(-0.5 / self.N, 0.5 / self.N, (self.V, self.N))
+        self.W_out = np.zeros((self.V, self.N))
 
-    def feed_forward(self, X):
-        self.h = np.dot(self.W.T, X).reshape(self.N, 1)
-        self.u = np.dot(self.W1.T, self.h)
-        self.y = softmax(self.u)
-        return self.y
+    def _sample_negatives(self, positive_idx):
+        negatives = []
+        while len(negatives) < self.K:
+            sample = np.random.choice(self.V, p=self.noise_dist)
+            if sample != positive_idx:
+                negatives.append(sample)
+        return negatives
 
-    def backpropagate(self, x, t):
-        e = self.y - np.asarray(t).reshape(self.V, 1)
-        dLdW1 = np.dot(self.h, e.T)
-        X = np.array(x).reshape(self.V, 1)
-        dLdW = np.dot(X, np.dot(self.W1, e).T)
-        self.W1 -= self.alpha * dLdW1
-        self.W  -= self.alpha * dLdW
+    def feed_forward(self, center_idx, context_idx):
+        h = self.W_in[center_idx]
 
-    def train(self, epochs):
+        pos_score = sigmoid(np.dot(self.W_out[context_idx], h))
+
+        neg_indices = self._sample_negatives(context_idx)
+        neg_scores = sigmoid(np.dot(self.W_out[neg_indices], h))
+
+        loss = -np.log(pos_score + 1e-10) - np.sum(np.log(1 - neg_scores + 1e-10))
+
+        return h, pos_score, neg_indices, neg_scores, loss
+
+    def backpropagate(self, center_idx, context_idx, h, pos_score, neg_indices, neg_scores):
+        pos_grad_out = (pos_score - 1) * h
+        self.W_out[context_idx] -= self.alpha * pos_grad_out
+
+        neg_grad_out = neg_scores.reshape(-1, 1) * h
+        self.W_out[neg_indices] -= self.alpha * neg_grad_out
+
+        grad_h = (pos_score - 1) * self.W_out[context_idx]
+        grad_h += np.sum(neg_scores.reshape(-1, 1) * self.W_out[neg_indices], axis=0)
+        self.W_in[center_idx] -= self.alpha * grad_h
+
+    def train_pair(self, center_idx, context_idx):
+        h, pos_score, neg_indices, neg_scores, loss = self.feed_forward(center_idx, context_idx)
+        self.backpropagate(center_idx, context_idx, h, pos_score, neg_indices, neg_scores)
+        return loss
+
+    def train(self, pairs, epochs):
         for epoch in range(1, epochs + 1):
-            self.loss = 0
-            for j in range(len(self.X_train)):
-                self.feed_forward(self.X_train[j])
-                self.backpropagate(self.X_train[j], self.y_train[j])
-                C = 0
-                for m in range(self.V):
-                    if self.y_train[j][m]:
-                        self.loss += -1 * self.u[m][0]
-                        C += 1
-                self.loss += C * np.log(np.sum(np.exp(self.u)))
-            print(f"Epoch {epoch:3d} | loss = {self.loss:.4f}")
+            total_loss = 0.0
+            np.random.shuffle(pairs)
+            for center_idx, context_idx in pairs:
+                total_loss += self.train_pair(center_idx, context_idx)
             self.alpha *= 1 / (1 + self.alpha * epoch)
+            print(f"Epoch {epoch:3d} | loss = {total_loss:.4f}")
 
-    def predict(self, word, number_of_predictions):
-        if word not in self.words:
-            print(f"Word '{word}' is not in the dictionary.")
-            return []
-        index = self.word_index[word]
-        X = [0] * self.V
-        X[index] = 1
-        prediction = self.feed_forward(X)
-        output = {prediction[i][0]: i for i in range(self.V)}
-        top_words = []
-        for k in sorted(output, reverse=True):
-            candidate = self.words[output[k]]
-            if candidate != word:
-                top_words.append(candidate)
-            if len(top_words) >= number_of_predictions:
+    def predict(self, word_idx, word_to_idx, vocab_list, n):
+        h = self.W_in[word_idx]
+        scores = self.W_out @ h
+        top_indices = np.argsort(scores)[::-1]
+        results = []
+        for idx in top_indices:
+            if idx != word_idx:
+                results.append(vocab_list[idx])
+            if len(results) >= n:
                 break
-        return top_words
+        return results

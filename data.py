@@ -1,4 +1,5 @@
 import nltk
+import numpy as np
 from nltk.corpus import brown, stopwords
 from collections import Counter
 
@@ -28,32 +29,31 @@ def load_data(max_vocab=500, max_sentences=2000):
             training_data.append(tokens)
 
     print(f"Loaded {len(training_data)} sentences | dictionary: {len(vocab_set)} words")
-    return training_data
+    return training_data, word_counts
 
 
-def prepare_data_for_training(sentences, w2v):
-    word_counts = {}
-    for sentence in sentences:
-        for word in sentence:
-            word_counts[word] = word_counts.get(word, 0) + 1
+def build_vocab(training_data):
+    counts = Counter(word for sent in training_data for word in sent)
+    vocab_list = sorted(counts.keys())
+    word_to_idx = {w: i for i, w in enumerate(vocab_list)}
+    return vocab_list, word_to_idx, counts
 
-    V = len(word_counts)
-    vocab_list = sorted(word_counts.keys())
-    vocab = {word: i for i, word in enumerate(vocab_list)}
 
-    for sentence in sentences:
-        for i, center in enumerate(sentence):
-            center_vec = [0] * V
-            center_vec[vocab[center]] = 1
+def build_noise_distribution(counts, vocab_list, power=0.75):
+    freqs = np.array([counts[w] for w in vocab_list], dtype=float)
+    freqs = freqs ** power
+    freqs /= freqs.sum()
+    return freqs
 
-            context_vec = [0] * V
-            for j in range(i - w2v.window_size, i + w2v.window_size + 1):
-                if j != i and 0 <= j < len(sentence):
-                    context_vec[vocab[sentence[j]]] += 1
 
-            if any(context_vec):
-                w2v.X_train.append(center_vec)
-                w2v.y_train.append(context_vec)
-
-    w2v.initialize(V, vocab_list)
-    print(f"Training examples: {len(w2v.X_train)}")
+def generate_skipgram_pairs(training_data, word_to_idx, window_size):
+    pairs = []
+    for sentence in training_data:
+        indices = [word_to_idx[w] for w in sentence]
+        for i, center in enumerate(indices):
+            start = max(0, i - window_size)
+            end = min(len(indices), i + window_size + 1)
+            for j in range(start, end):
+                if j != i:
+                    pairs.append((center, indices[j]))
+    return pairs

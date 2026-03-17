@@ -1,3 +1,3 @@
-#USAGE
+# USAGE
 
-python main.py
+python training.py

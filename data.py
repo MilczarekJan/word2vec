@@ -27,7 +27,7 @@ def load_data(max_vocab=500, max_sentences=2000):
         if len(tokens) >= 2:
             training_data.append(tokens)
 
-    print(f"Załadowano {len(training_data)} zdań | słownik: {len(vocab_set)} słów")
+    print(f"Loaded {len(training_data)} sentences | dictionary: {len(vocab_set)} words")
     return training_data
 
 
@@ -56,4 +56,4 @@ def prepare_data_for_training(sentences, w2v):
                 w2v.y_train.append(context_vec)
 
     w2v.initialize(V, vocab_list)
-    print(f"Przykłady treningowe: {len(w2v.X_train)}")
+    print(f"Training examples: {len(w2v.X_train)}")
